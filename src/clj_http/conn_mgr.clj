@@ -60,17 +60,28 @@
         (.load keystore is (.toCharArray keystore-pass))
         keystore))))
 
-(defn get-keystore-scheme-registry
-  [{:keys [keystore keystore-type keystore-pass
-           trust-store trust-store-type trust-store-pass insecure?]}]
-  (let [ks (get-keystore keystore keystore-type keystore-pass)
-        ts (get-keystore trust-store trust-store-type trust-store-pass)
-        factory (SSLSocketFactory. ks keystore-pass ts)]
+(defn make-ssl-socket-factory [opts]
+  (let [{:keys [keystore keystore-type keystore-pass
+                 trust-store trust-store-type trust-store-pass insecure?]}
+         opts
+         ks (get-keystore keystore keystore-type keystore-pass)
+         ts (get-keystore trust-store trust-store-type trust-store-pass)]
     (if insecure?
-      (.setHostnameVerifier factory
-                            SSLSocketFactory/ALLOW_ALL_HOSTNAME_VERIFIER))
-    (doto (SchemeRegistryFactory/createDefault)
-      (.register (Scheme. "https" 443 factory)))))
+      (SSLSocketFactory. nil      ;;algorithm defaults to TLS
+                         ks
+                         keystore-pass
+                         ts
+                         (java.security.SecureRandom/getInstance "SHA1PRNG")
+                         (reify TrustStrategy
+                           (isTrusted [_ _ _] true))
+                         SSLSocketFactory/ALLOW_ALL_HOSTNAME_VERIFIER)
+      (SSLSocketFactory. ks keystore-pass ts))))
+
+
+(defn get-keystore-scheme-registry
+  [opts]
+  (doto (SchemeRegistryFactory/createDefault)
+    (.register (Scheme. "https" 443 (make-ssl-socket-factory opts)))))
 
 
 (defn ^BasicClientConnectionManager make-regular-conn-manager
